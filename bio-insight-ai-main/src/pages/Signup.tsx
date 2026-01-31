@@ -51,7 +51,7 @@ const Signup = () => {
 
       // Send Welcome Email
       try {
-        await fetch('http://localhost:5000/user/welcome', {
+        await fetch('https://smartbiogpt.onrender.com//user/welcome', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
