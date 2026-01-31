@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Protein Viewer</title>
+    <!-- Mol* CSS -->
+    <link rel="stylesheet" type="text/css"
+        href="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #ffffff;
+            overflow: hidden;
+        }
+
+        #app {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+
+        .msp-plugin .msp-layout-standard {
+            border: none !important;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app"></div>
+
+    <!-- Mol* JS -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/molstar@latest/build/viewer/molstar.js"></script>
+    <script>
+        async function init() {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                let proteinId = urlParams.get('id');
+                // Clean ID
+                if (!proteinId) proteinId = 'P04637';
+
+                console.log("Initializing Mol* for ID:", proteinId);
+
+                // UI Cleanup: Hide all controls, just show canvas
+                const viewer = await molstar.Viewer.create('app', {
+                    layoutIsExpanded: false,
+                    layoutShowControls: false,
+                    layoutShowRemoteState: false,
+                    layoutShowSequence: false,
+                    layoutShowLog: false,
+                    layoutShowLeftPanel: false,
+                    viewportShowExpand: false,
+                    viewportShowAnimation: false,
+                });
+
+                // Logic: Strictly PDB (RCSB)
+                // 1. Try to fetch UniProt to find PDB ID.
+                let pdbId = null;
+
+                try {
+                    const uniRes = await fetch(`https://rest.uniprot.org/uniprotkb/${proteinId}.json`);
+                    if (uniRes.ok) {
+                        const uniData = await uniRes.json();
+                        // Find first PDB cross-ref
+                        const pdbRef = uniData.uniProtKBCrossReferences?.find(xref => xref.database === 'PDB');
+                        if (pdbRef) {
+                            pdbId = pdbRef.id;
+                            console.log(`Resolved ${proteinId} to PDB ID: ${pdbId}`);
+                        }
+                    }
+                } catch (e) {
+                    console.warn("UniProt fetch failed:", e);
+                }
+
+                // If resolution failed, try using the ID itself (if it's already a PDB ID like 1T4F)
+                // PDB IDs are typically 4 chars. UniProt are 6+.
+                if (!pdbId && proteinId.length === 4) {
+                    pdbId = proteinId;
+                }
+
+                let loaded = false;
+                if (pdbId) {
+                    const pdbUrl = `https://files.rcsb.org/download/${pdbId}.pdb`;
+                    console.log("Loading RCSB PDB:", pdbUrl);
+                    try {
+                        await viewer.loadStructureFromUrl(pdbUrl, 'pdb');
+                        loaded = true;
+                    } catch (err) {
+                        console.error("RCSB Load Failed:", err);
+                    }
+                }
+
+                if (!loaded) {
+                    // Fallback to error logic without AlphaFold as requested
+                    // "don sue ny aplha fodl"
+                    throw new Error("No PDB structure found for " + proteinId);
+                }
+            } catch (err) {
+                console.error("Mol* Error:", err);
+                document.getElementById('app').innerHTML = `<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:100%;color:#666;font-family:sans-serif;text-align:center;padding:20px;">
+                    <h3 style="color:#ef4444">Structure Not Available</h3>
+                    <p>No RCSB PDB model found for <b>${new URLSearchParams(window.location.search).get('id')}</b>.</p>
+                </div>`;
+            }
+        }
+
+        window.onload = init;
+    </script>
+</body>
+
+</html>
