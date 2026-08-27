@@ -1,71 +1,45 @@
-const express = require('express');
-const dotenv = require('dotenv');
-const cors = require('cors');
-const morgan = require('morgan');
+const env = require('./config/env');
+const logger = require('./config/logger');
+const app = require('./app');
 
-// Crash handling - Must be at the top
-process.on('uncaughtException', (err) => {
-    console.error('CRITICAL ERROR (Uncaught Exception):', err);
+const server = app.listen(env.PORT, () => {
+    logger.info(
+        { port: env.PORT, env: env.NODE_ENV, ai: env.aiEnabled, mail: env.mailEnabled },
+        `Smart Bio GPT API listening on :${env.PORT}`
+    );
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('CRITICAL ERROR (Unhandled Rejection):', reason);
-});
+server.keepAliveTimeout = 61_000;
+server.headersTimeout = 65_000;
 
-try {
-    // Load env vars
-    dotenv.config();
-    console.log("Environment loaded.");
-
-    const app = express();
-
-    // Middleware
-    app.use(express.json());
-    app.use(cors());
-    if (process.env.NODE_ENV === 'development') {
-        app.use(morgan('dev'));
-    }
-
-    // Routes imports
-    console.log("Loading routes...");
-    const authRoutes = require('./routes/authRoutes');
-    const bioRoutes = require('./routes/bioRoutes');
-    const chatRoutes = require('./routes/chatRoutes');
-    const userRoutes = require('./routes/userRoutes');
-    const structureRoutes = require('./routes/structureRoutes');
-
-    // Mount routes
-    app.use('/auth', authRoutes);
-    app.use('/bio', bioRoutes);
-    app.use('/chat', chatRoutes);
-    app.use('/user', userRoutes);
-    app.use('/structure', structureRoutes);
-
-    app.get('/', (req, res) => {
-        res.send('Smart Bio GPT (Supabase Edition) is active.');
+// ---- graceful shutdown: stop accepting connections, drain, then exit ----
+let shuttingDown = false;
+function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal }, 'shutting down');
+    server.close((err) => {
+        if (err) {
+            logger.error({ err }, 'error during shutdown');
+            process.exit(1);
+        }
+        logger.info('closed remaining connections, exiting');
+        process.exit(0);
     });
-
-    // Error Handler Middleware
-    app.use((err, req, res, next) => {
-        console.error(err.stack);
-        const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-        res.status(statusCode).json({
-            message: err.message,
-            stack: process.env.NODE_ENV === 'production' ? null : err.stack,
-        });
-    });
-
-    const PORT = process.env.PORT || 5000;
-
-    const server = app.listen(PORT, () => {
-        console.log(`\n✅ SERVER STARTED SUCCESSFULLY on Port ${PORT}`);
-        console.log(`   Mode: ${process.env.NODE_ENV}`);
-        console.log(`   Supabase Endpoint: ${process.env.SUPABASE_URL ? 'Configured' : 'MISSING'}\n`);
-    });
-
-    // Explicit keep-alive (usually not needed if listen works, but good for debugging)
-    server.on('error', (e) => console.error("Server Error:", e));
-
-} catch (error) {
-    console.error("Failed to start server:", error);
+    setTimeout(() => {
+        logger.warn('forced exit after shutdown timeout');
+        process.exit(1);
+    }, 10_000).unref();
 }
+
+['SIGTERM', 'SIGINT'].forEach((sig) => process.on(sig, () => shutdown(sig)));
+
+process.on('unhandledRejection', (reason) => {
+    logger.error({ reason }, 'unhandledRejection');
+});
+process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'uncaughtException - exiting');
+    shutdown('uncaughtException');
+});
+
+module.exports = server;

@@ -2,15 +2,15 @@ import { motion } from "framer-motion";
 
 const technologies = [
   { name: "React", category: "Frontend" },
-  { name: "Node.js", category: "Backend" },
-  { name: "MongoDB", category: "Database" },
-  { name: "Firebase", category: "Auth" },
-  { name: "UniProt", category: "API" },
-  { name: "AlphaFold", category: "API" },
-  { name: "DrugBank", category: "API" },
-  { name: "STRING DB", category: "API" },
-  { name: "PDB", category: "API" },
-  { name: "ChEMBL", category: "API" },
+  { name: "Express", category: "Backend" },
+  { name: "Supabase", category: "Auth + DB" },
+  { name: "OpenRouter", category: "AI" },
+  { name: "UniProt", category: "Data" },
+  { name: "AlphaFold", category: "Data" },
+  { name: "RCSB PDB", category: "Data" },
+  { name: "STRING DB", category: "Data" },
+  { name: "ChEMBL", category: "Data" },
+  { name: "Mol*", category: "Viewer" },
 ];
 
 const TechShowcase = () => {

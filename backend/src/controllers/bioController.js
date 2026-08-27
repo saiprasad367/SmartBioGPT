@@ -1,32 +1,37 @@
+const { validate, z } = require('../middleware/validate');
+const asyncHandler = require('../utils/asyncHandler');
 const bioService = require('../services/bioService');
-const { z } = require('zod');
+const repository = require('../services/repository');
+const logger = require('../config/logger');
 
-// @desc    Search for biological data
-// @route   POST /bio/search
-// @access  Private (or Public based on requirements, plan says Protected)
-const searchBioData = async (req, res) => {
-    const searchSchema = z.object({
-        query: z.string().min(2, 'Search query must be at least 2 characters'),
-    });
-
-    try {
-        const validatedData = searchSchema.parse(req.body);
-        const { query } = validatedData;
-
-        const data = await bioService.fetchBioData(query);
-
-        res.json(data);
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            res.status(400).json({ message: error.errors[0].message });
-        } else if (error.message === 'Protein not found') {
-            res.status(404).json({ message: 'Protein not found' });
-        } else {
-            res.status(500).json({ message: 'Server Error fetching bio data' });
-        }
-    }
+const searchSchema = {
+    body: z.object({
+        query: z.string().trim().min(2, 'Search query must be at least 2 characters').max(120),
+    }),
 };
 
+const search = asyncHandler(async (req, res) => {
+    const { query } = req.body;
+    const dossier = await bioService.getProteinDossier(query);
+
+    if (req.user) {
+        repository
+            .recordSearch(req.user.id, { query, accession: dossier.accession })
+            .catch((err) => logger.debug({ err: err.message }, 'recordSearch skipped'));
+    }
+
+    res.json({ data: dossier });
+});
+
+const getByAccession = asyncHandler(async (req, res) => {
+    const dossier = await bioService.getProteinDossier(req.params.accession);
+    res.json({ data: dossier });
+});
+
 module.exports = {
-    searchBioData,
+    search: [validate(searchSchema), search],
+    getByAccession: [
+        validate({ params: z.object({ accession: z.string().trim().min(2).max(120) }) }),
+        getByAccession,
+    ],
 };

@@ -1,84 +1,105 @@
-const axios = require('axios');
+const env = require('../config/env');
+const logger = require('../config/logger');
+const { TtlCache } = require('../utils/cache');
+const uniprot = require('./providers/uniprot');
+const chembl = require('./providers/chembl');
+const stringdb = require('./providers/stringdb');
+const structureProvider = require('./providers/structure');
 
-// External API Base URLs
-const UNIPROT_API_URL = 'https://rest.uniprot.org/uniprotkb/search';
-const STRING_DB_URL = 'https://string-db.org/api/json/network';
+const cache = new TtlCache({ max: 2000, ttl: env.BIO_CACHE_TTL_MS });
 
 /**
- * Fetch and aggregate biological data
- * @param {string} query - Gene or Protein name (e.g., TP53)
+ * Aggregate a normalized "protein dossier" from several public databases.
+ *
+ * Design: UniProt is the spine (required). Every enrichment call runs
+ * concurrently and independently via `allSettled`, so STRING or ChEMBL being
+ * down only removes that section - the researcher still gets a useful result.
  */
-const fetchBioData = async (query) => {
-    try {
-        // 1. Search UniProt for the protein/gene
-        // querying for human by default if generic, or just general search
-        // Using fields to limit response size
-        const uniprotUrl = `${UNIPROT_API_URL}?query=${query}&format=json&size=1`;
-        const uniprotRes = await axios.get(uniprotUrl);
+async function getProteinDossier(query) {
+    const key = `dossier:${query.trim().toLowerCase()}`;
 
-        if (!uniprotRes.data.results || uniprotRes.data.results.length === 0) {
-            throw new Error('Protein not found');
-        }
+    return cache.wrap(key, async () => {
+        const core = await uniprot.search(query); // throws 404 if truly not found
 
-        const proteinData = uniprotRes.data.results[0];
-        const primaryAccession = proteinData.primaryAccession;
-        const geneName = proteinData.genes?.[0]?.geneName?.value;
-        const organism = proteinData.organism?.scientificName;
+        const [chemblRes, stringRes, structureRes] = await Promise.allSettled([
+            chembl.targetByAccession(core.accession),
+            stringdb.interactionPartners(core.accession, core.taxonId),
+            structureProvider.resolve(core.accession),
+        ]);
 
-        // Extract PDB IDs from cross-references
-        const pdbRefs = proteinData.uniProtKBCrossReferences
-            ?.filter((ref) => ref.database === 'PDB')
-            .map((ref) => ref.id)
-            .slice(0, 5); // Take top 5
+        const settled = (r, fallback) => (r.status === 'fulfilled' ? r.value : fallback);
+        if (chemblRes.status === 'rejected')
+            logger.debug({ err: chemblRes.reason?.message }, 'chembl enrichment skipped');
+        if (stringRes.status === 'rejected')
+            logger.debug({ err: stringRes.reason?.message }, 'string enrichment skipped');
 
-        // 2. Fetch Interactions from STRING DB (Parallel if we had more, but depend on ID here)
-        let stringInteractions = [];
-        if (primaryAccession) {
-            try {
-                const stringUrl = `${STRING_DB_URL}?identifiers=${primaryAccession}&limit=5`;
-                const stringRes = await axios.get(stringUrl);
-                stringInteractions = stringRes.data;
-            } catch (err) {
-                console.error('STRING DB Error:', err.message);
-                // Non-critical, continue
-            }
-        }
+        const stringPartners = settled(stringRes, []);
+        const structure = settled(structureRes, null);
 
-        // 3. Fetch ChEMBL Data (Target Details)
-        let chemblData = {};
-        if (primaryAccession) {
-            try {
-                // Search ChEMBL Target by UniProt Accession
-                const chemblUrl = `https://www.ebi.ac.uk/chembl/api/data/target?target_components__accession=${primaryAccession}&format=json`;
-                const chemblRes = await axios.get(chemblUrl);
-                if (chemblRes.data.targets && chemblRes.data.targets.length > 0) {
-                    chemblData = chemblRes.data.targets[0];
-                }
-            } catch (chemblErr) {
-                console.error('ChEMBL API Error:', chemblErr.message);
-            }
-        }
-
-        // 4. Structure the final response
         return {
-            name: geneName || query,
-            accession: primaryAccession,
-            organism: organism,
-            description: proteinData.proteinDescription?.recommendedName?.fullName?.value,
-            function: proteinData.comments?.find(c => c.commentType === 'FUNCTION')?.texts?.[0]?.value || 'No function description available.',
-            structure: {
-                pdbIds: pdbRefs || [],
-                alphaFoldUrl: `https://alphafold.ebi.ac.uk/entry/${primaryAccession}`,
-            },
-            interactions: stringInteractions,
-            chembl: chemblData // Add ChEMBL data
+            query,
+            accession: core.accession,
+            name: core.name,
+            gene: core.gene,
+            geneSynonyms: core.geneSynonyms,
+            organism: core.organism,
+            taxonId: core.taxonId,
+            length: core.length,
+            sequence: core.sequence,
+            function: core.function,
+            keywords: core.keywords,
+            diseases: core.diseases,
+            drugs: core.drugs,
+            interactions: mergeInteractions(core.interactions, stringPartners),
+            chembl: settled(chemblRes, null),
+            structure: structure
+                ? {
+                      source: structure.source,
+                      id: structure.id,
+                      format: structure.format,
+                      url: structure.url,
+                      provider: structure.provider,
+                      pdbIds: core.structure.pdbIds,
+                      alphaFoldId: core.structure.alphaFoldId,
+                  }
+                : {
+                      source: null,
+                      pdbIds: core.structure.pdbIds,
+                      alphaFoldId: core.structure.alphaFoldId,
+                  },
+            sources: [
+                'UniProt',
+                stringPartners.length && 'STRING',
+                chemblRes.status === 'fulfilled' && chemblRes.value && 'ChEMBL',
+                structure && structure.provider,
+            ].filter(Boolean),
+            retrievedAt: new Date().toISOString(),
         };
-    } catch (error) {
-        console.error('BioService Error:', error.message);
-        throw error;
-    }
-};
+    });
+}
 
-module.exports = {
-    fetchBioData,
-};
+function mergeInteractions(uniprotInteractions, stringPartners) {
+    const seen = new Set();
+    const out = [];
+    for (const i of uniprotInteractions || []) {
+        const k = (i.partner || '').toLowerCase();
+        if (k && !seen.has(k)) {
+            seen.add(k);
+            out.push({ partner: i.partner, accession: i.accession, source: 'UniProt', score: null });
+        }
+    }
+    for (const s of stringPartners || []) {
+        const k = (s.partner || '').toLowerCase();
+        if (k && !seen.has(k)) {
+            seen.add(k);
+            out.push({ partner: s.partner, accession: null, source: 'STRING', score: s.score });
+        }
+    }
+    return out.slice(0, 20);
+}
+
+function cacheStats() {
+    return cache.stats();
+}
+
+module.exports = { getProteinDossier, cacheStats };

@@ -1,142 +1,102 @@
-const supabase = require('../config/supabase');
+const { validate, z } = require('../middleware/validate');
+const asyncHandler = require('../utils/asyncHandler');
+const ApiError = require('../utils/ApiError');
+const logger = require('../config/logger');
+const repository = require('../services/repository');
+const bioService = require('../services/bioService');
 const aiService = require('../services/aiService');
-const { z } = require('zod');
 
-// @desc    Start/Continue chat
-// @route   POST /chat/message
-const sendMessage = async (req, res) => {
-    const messageSchema = z.object({
-        sessionId: z.string().optional(),
-        message: z.string().min(1),
-        proteinContext: z.string().optional(),
-        contextData: z.any().optional(),
-    });
+const messageSchema = {
+    body: z.object({
+        chatId: z.string().uuid().optional(),
+        message: z.string().trim().min(1).max(8000),
+        proteinAccession: z.string().trim().min(2).max(120).optional(),
+    }),
+};
 
-    try {
-        const { sessionId, message, proteinContext, contextData } = messageSchema.parse(req.body);
+const HISTORY_WINDOW = 12;
 
-        // GUEST MODE: Skip DB Insert
-        // Check if user is guest (contains 'guest' or is the specific ID)
-        if (req.user.id.includes('guest')) {
-            const currentSessionId = sessionId || 'guest_session_' + Date.now();
+const sendMessage = asyncHandler(async (req, res) => {
+    const userId = req.user.id;
+    let { chatId, message, proteinAccession } = req.body;
 
-            // Simple AI call without history persistence
-            const history = [{ role: 'user', content: message }];
-            const aiResponseContent = await aiService.generateChatResponse(history, contextData);
-
-            return res.json({
-                sessionId: currentSessionId,
-                messages: [
-                    { role: 'user', content: message },
-                    { role: 'assistant', content: aiResponseContent }
-                ],
-                warning: 'Guest Mode: History not saved'
-            });
-        }
-
-        let currentSessionId = sessionId;
-
-        // 1. Create Session if needed
-        if (!currentSessionId) {
-            const { data: newSession, error: sessionError } = await supabase
-                .from('chat_sessions')
-                .insert({
-                    user_id: req.user.id,
-                    title: proteinContext ? `Research: ${proteinContext}` : 'New Conversation',
-                    protein_context: proteinContext,
-                })
-                .select()
-                .single();
-
-            if (sessionError) throw sessionError;
-            currentSessionId = newSession.id;
-        }
-
-        // 2. Insert User Message
-        const { error: msgError } = await supabase.from('messages').insert({
-            session_id: currentSessionId,
-            role: 'user',
-            content: message,
-        });
-        if (msgError) throw msgError;
-
-        // 3. Get History for AI context (Limit to last 10 for efficiency)
-        const { data: history } = await supabase
-            .from('messages')
-            .select('role, content')
-            .eq('session_id', currentSessionId)
-            .order('created_at', { ascending: true });
-
-        // 4. Generate AI Response
-        const aiResponseContent = await aiService.generateChatResponse(history || [{ role: 'user', content: message }], contextData);
-
-        // 5. Insert AI Message
-        const { data: aiMsg, error: aiError } = await supabase.from('messages').insert({
-            session_id: currentSessionId,
-            role: 'assistant',
-            content: aiResponseContent,
-        }).select().single();
-        if (aiError) throw aiError;
-
-        // 6. Return standard format
-        // Fetch full updated messages to sync
-        const { data: allMessages } = await supabase
-            .from('messages')
-            .select('*')
-            .eq('session_id', currentSessionId)
-            .order('created_at', { ascending: true });
-
-        res.json({
-            sessionId: currentSessionId,
-            messages: allMessages,
-        });
-
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            res.status(400).json({ message: error.errors[0].message });
-        } else {
-            console.error("Chat Error:", error);
-            res.status(500).json({ message: error.message });
+    // Resolve protein context server-side (never trust a client-supplied dossier).
+    let contextData = null;
+    if (proteinAccession) {
+        try {
+            contextData = await bioService.getProteinDossier(proteinAccession);
+        } catch (err) {
+            logger.debug({ err: err.message, proteinAccession }, 'context dossier unavailable');
         }
     }
-};
 
-// @desc    Get History
-// @route   GET /chat/history
-const getHistory = async (req, res) => {
-    const { data, error } = await supabase
-        .from('chat_sessions')
-        .select('*')
-        .eq('user_id', req.user.id)
-        .order('created_at', { ascending: false });
+    // Create the chat lazily on first message.
+    if (!chatId) {
+        const chat = await repository.createChat(userId, {
+            title: message.slice(0, 60),
+            proteinAccession: contextData?.accession || proteinAccession || null,
+        });
+        chatId = chat.id;
+    } else {
+        // ownership check
+        await repository.getChat(userId, chatId);
+    }
 
-    if (error) return res.status(500).json({ message: error.message });
-    res.json(data);
-};
+    await repository.addMessage(chatId, { role: 'user', content: message });
 
-// @desc    Get Session
-// @route   GET /chat/session/:id
-const getSession = async (req, res) => {
-    const { data: session, error } = await supabase
-        .from('chat_sessions')
-        .select('*')
-        .eq('id', req.params.id)
-        .single();
+    const history = await repository.listMessages(chatId);
+    const window = history.slice(-HISTORY_WINDOW).map((m) => ({ role: m.role, content: m.content }));
 
-    if (error || !session) return res.status(404).json({ message: 'Session not found' });
+    const ai = await aiService.generateChatResponse(window, contextData);
 
-    // Get messages
-    const { data: messages } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('session_id', session.id)
-        .order('created_at', { ascending: true });
+    const assistant = await repository.addMessage(chatId, {
+        role: 'assistant',
+        content: ai.content,
+        degraded: ai.degraded,
+    });
 
-    res.json({ ...session, messages });
-};
+    // Auto-title from the first exchange.
+    if (history.length <= 1) {
+        await repository
+            .updateChat(userId, chatId, { title: message.slice(0, 60) })
+            .catch(() => {});
+    }
+
+    res.json({
+        chatId,
+        message: assistant,
+        degraded: ai.degraded,
+        context: contextData ? { accession: contextData.accession, name: contextData.name } : null,
+    });
+});
+
+const listChats = asyncHandler(async (req, res) => {
+    res.json({ data: await repository.listChats(req.user.id) });
+});
+
+const getChat = asyncHandler(async (req, res) => {
+    res.json({ data: await repository.getChat(req.user.id, req.params.id) });
+});
+
+const renameChat = asyncHandler(async (req, res) => {
+    const updated = await repository.updateChat(req.user.id, req.params.id, { title: req.body.title });
+    res.json({ data: updated });
+});
+
+const deleteChat = asyncHandler(async (req, res) => {
+    await repository.deleteChat(req.user.id, req.params.id);
+    res.status(204).send();
+});
+
+const idParam = { params: z.object({ id: z.string().uuid() }) };
 
 module.exports = {
-    sendMessage,
-    getHistory,
-    getSession,
+    sendMessage: [validate(messageSchema), sendMessage],
+    listChats,
+    getChat: [validate(idParam), getChat],
+    renameChat: [
+        validate({ ...idParam, body: z.object({ title: z.string().trim().min(1).max(120) }) }),
+        renameChat,
+    ],
+    deleteChat: [validate(idParam), deleteChat],
 };

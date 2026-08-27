@@ -3,21 +3,19 @@ import { useAuthStore } from "@/store/authStore";
 import { Loader2 } from "lucide-react";
 
 const ProtectedRoute = () => {
-    const { user, loading } = useAuthStore();
+  const { user, loading } = useAuthStore();
 
-    if (loading) {
-        return (
-            <div className="flex h-screen w-full items-center justify-center">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-        );
-    }
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
-    if (!user) {
-        return <Navigate to="/login" replace />;
-    }
+  if (!user) return <Navigate to="/login" replace />;
 
-    return <Outlet />;
+  return <Outlet />;
 };
 
 export default ProtectedRoute;

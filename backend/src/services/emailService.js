@@ -1,185 +1,75 @@
-const SibApiV3Sdk = require('sib-api-v3-sdk');
+const nodemailer = require('nodemailer');
+const env = require('../config/env');
+const logger = require('../config/logger');
 
-const defaultClient = SibApiV3Sdk.ApiClient.instance;
+let transporter = null;
+if (env.mailEnabled) {
+    transporter = nodemailer.createTransport({
+        host: env.SMTP_HOST,
+        port: env.SMTP_PORT || 587,
+        secure: env.SMTP_SECURE,
+        auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    });
+    transporter.verify().then(
+        () => logger.info('SMTP transport ready'),
+        (err) => logger.warn({ err: err.message }, 'SMTP transport verification failed')
+    );
+} else {
+    logger.warn('Mail disabled (SMTP_* not configured) - welcome emails will be skipped.');
+}
 
-// Configure API key authorization: api-key
-const apiKey = defaultClient.authentications['api-key'];
-apiKey.apiKey = process.env.BREVO_API_KEY;
-
-const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-
-const sendWelcomeEmail = async (email, name) => {
-  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-
-  sendSmtpEmail.subject = "Welcome to Smart Bio GPT! 🧬";
-  sendSmtpEmail.sender = { "name": "Smart Bio GPT Team", "email": process.env.ADMIN_EMAIL };
-  sendSmtpEmail.to = [{ "email": email, "name": name }];
-
-  // Modern, Premium HTML Template
-  sendSmtpEmail.htmlContent = `
+function welcomeTemplate(name) {
+    const safeName = String(name || 'Researcher').replace(/[<>]/g, '');
+    return `
 <!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&family=Dancing+Script:wght@700&display=swap');
-  
-  body {
-    font-family: 'Outfit', sans-serif;
-    margin: 0;
-    padding: 0;
-    background-color: #f8fafc;
-    color: #1e293b;
-  }
-  .container {
-    max-width: 600px;
-    margin: 40px auto;
-    background: #ffffff;
-    border-radius: 24px;
-    overflow: hidden;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.05);
-    border: 1px solid #e2e8f0;
-  }
-  .header {
-    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-    padding: 60px 20px;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-  }
-  .header::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
-    animation: pulse 4s infinite;
-  }
-  @keyframes pulse {
-    0% { transform: scale(1); opacity: 0.5; }
-    50% { transform: scale(1.1); opacity: 0.8; }
-    100% { transform: scale(1); opacity: 0.5; }
-  }
-  .logo-text {
-    font-size: 32px;
-    font-weight: 700;
-    color: white;
-    z-index: 10;
-    position: relative;
-    letter-spacing: -0.5px;
-  }
-  .content {
-    padding: 40px;
-    text-align: center;
-  }
-  h1 {
-    font-size: 28px;
-    color: #0f172a;
-    margin-bottom: 16px;
-    font-weight: 700;
-  }
-  p {
-    font-size: 16px;
-    line-height: 1.6;
-    color: #64748b;
-    margin-bottom: 24px;
-  }
-  .btn {
-    display: inline-block;
-    padding: 16px 32px;
-    background-color: #10b981;
-    color: white;
-    text-decoration: none;
-    border-radius: 50px;
-    font-weight: 600;
-    margin-top: 10px;
-    transition: all 0.3s ease;
-    box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.2);
-  }
-  .btn:hover {
-    background-color: #059669;
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.3);
-  }
-  .feature-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin: 30px 0;
-  }
-  .feature {
-    background: #f1f5f9;
-    padding: 15px;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 500;
-    color: #334155;
-  }
-  .signature {
-    margin-top: 50px;
-    text-align: right;
-    border-top: 1px solid #f1f5f9;
-    padding-top: 20px;
-  }
-  .dev-signature {
-    font-family: 'Dancing Script', cursive;
-    font-size: 24px;
-    color: #10b981;
-  }
-  .footer {
-    background-color: #f1f5f9;
-    padding: 20px;
-    text-align: center;
-    font-size: 12px;
-    color: #94a3b8;
-  }
-</style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="logo-text">Smart Bio GPT 🧬</div>
-    </div>
-    <div class="content">
-      <h1>Hello, ${name}! 👋</h1>
-      <p>
-        Thanks for signing up for <strong>Smart Bio GPT</strong>! You are now part of a community revolutionizing biological research with AI.
-      </p>
-      
-      <p>Start exploring protein structures, analyzing genetic data, and getting real-time AI insights.</p>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#f4f4f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 0">
+    <tr><td align="center">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="background:#fff;border:1px solid #e4e4e7;border-radius:16px;overflow:hidden">
+        <tr><td style="background:#111;padding:36px 40px">
+          <span style="color:#fff;font-size:20px;font-weight:700;letter-spacing:-0.02em">Smart Bio GPT</span>
+        </td></tr>
+        <tr><td style="padding:40px">
+          <h1 style="margin:0 0 12px;font-size:22px">Welcome, ${safeName}.</h1>
+          <p style="margin:0 0 16px;line-height:1.6;color:#3f3f46">
+            Your account is ready. Smart Bio GPT gives you a conversational way to explore
+            proteins and genes — grounded in UniProt, RCSB PDB, AlphaFold, ChEMBL and STRING.
+          </p>
+          <ul style="margin:0 0 24px;padding-left:20px;line-height:1.8;color:#3f3f46">
+            <li>Search any gene or protein for a normalized research dossier</li>
+            <li>Ask follow-up questions with the protein held in context</li>
+            <li>Inspect the 3D structure and save proteins to favorites</li>
+          </ul>
+          <a href="${env.APP_PUBLIC_URL}/dashboard"
+             style="display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:600">
+            Open the dashboard
+          </a>
+        </td></tr>
+        <tr><td style="padding:20px 40px;background:#fafafa;border-top:1px solid #e4e4e7;color:#a1a1aa;font-size:12px">
+          © ${new Date().getFullYear()} Smart Bio GPT
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
 
-      <div class="feature-grid">
-        <div class="feature">✨ 3D Protein Analysis</div>
-        <div class="feature">🧬 Gene Mapping</div>
-        <div class="feature">🤖 AI Chat Assistant</div>
-        <div class="feature">📊 Real-time Data</div>
-      </div>
-
-      <a href="http://localhost:5173/dashboard" class="btn">Explore Now</a>
-
-      <div class="signature">
-        <p style="margin-bottom: 5px; font-size: 14px;">With innovation,</p>
-        <div class="dev-signature">Developed by Saiprasad</div>
-      </div>
-    </div>
-    <div class="footer">
-      © 2026 Smart Bio GPT. All rights reserved.
-    </div>
-  </div>
-</body>
-</html>
-    `;
-
-  try {
-    const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log('API called successfully. Returned data: ' + JSON.stringify(data));
-    return { success: true, data };
-  } catch (error) {
-    console.error('Email API Error:', error);
-    return { success: false, error };
-  }
-};
+async function sendWelcomeEmail(email, name) {
+    if (!transporter) return { sent: false, skipped: true, reason: 'mail_disabled' };
+    try {
+        const info = await transporter.sendMail({
+            from: env.MAIL_FROM,
+            to: email,
+            subject: 'Welcome to Smart Bio GPT',
+            html: welcomeTemplate(name),
+        });
+        logger.info({ messageId: info.messageId, to: email }, 'welcome email sent');
+        return { sent: true, messageId: info.messageId };
+    } catch (err) {
+        logger.error({ err: err.message, to: email }, 'failed to send welcome email');
+        return { sent: false, error: err.message };
+    }
+}
 
 module.exports = { sendWelcomeEmail };

@@ -1,107 +1,93 @@
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import ChatInterface from "@/components/chat/ChatInterface";
 import ProteinViewer from "@/components/protein/ProteinViewer";
 import { useChatStore } from "@/store/chatStore";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
 
 const Dashboard = () => {
-  const [showProteinViewer, setShowProteinViewer] = useState(false); // Default: Closed as requested
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // New state for mobile menu
-  const currentSession = useChatStore((state) => state.getCurrentSession());
-  const { activeProteinId, fetchSessions } = useChatStore();
+  const [mobileNav, setMobileNav] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const activeProtein = useChatStore((s) => s.activeProtein);
 
+  // Auto-open the structure panel when a protein becomes active.
   useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  useEffect(() => {
-    // Auto-open 3D viewer when a protein is selected
-    if (activeProteinId) {
-      setShowProteinViewer(true); // Or logic to open the right panel if separate
-    }
-  }, [activeProteinId]);
-
-  const handleToggleSidebar = () => {
-    // Check if mobile (using simple width check)
-    if (window.innerWidth < 1024) {
-      setMobileMenuOpen(!mobileMenuOpen);
-    } else {
-      setSidebarCollapsed(!sidebarCollapsed);
-    }
-  };
+    if (activeProtein) setPanelOpen(true);
+  }, [activeProtein]);
 
   return (
-    <div className="h-screen flex overflow-hidden bg-background">
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:block h-full flex-none">
-        <DashboardSidebar isCollapsed={sidebarCollapsed} />
+    <div className="h-[100dvh] flex overflow-hidden bg-background">
+      {/* desktop sidebar */}
+      <div className="hidden lg:block shrink-0">
+        <DashboardSidebar />
       </div>
 
-      {/* Mobile Sidebar Overlay */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <motion.div
-            initial={{ x: -300 }}
-            animate={{ x: 0 }}
-            exit={{ x: -300 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="absolute left-0 top-0 bottom-0 w-72 h-full z-50 shadow-2xl"
-          >
-            <DashboardSidebar isCollapsed={false} />
-          </motion.div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <DashboardHeader onToggleSidebar={handleToggleSidebar} />
-
-        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-          {/* Chat Area */}
-          <motion.div
-            className={`flex-1 flex flex-col overflow-hidden ${showProteinViewer ? 'hidden lg:flex' : 'flex'}`}
-            layout
-          >
-            <ChatInterface />
-          </motion.div>
-
-          {/* Protein Viewer Panel */}
-          {showProteinViewer && (
+      {/* mobile sidebar */}
+      <AnimatePresence>
+        {mobileNav && (
+          <div className="fixed inset-0 z-50 lg:hidden">
             <motion.div
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: "100%", opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.3 }}
-              className="w-full lg:w-[400px] border-l border-border p-4 bg-background h-[50vh] lg:h-auto flex-none z-40 lg:z-auto absolute lg:relative bottom-0 lg:bottom-auto shadow-2xl lg:shadow-none border-t lg:border-t-0"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileNav(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: -288 }}
+              animate={{ x: 0 }}
+              exit={{ x: -288 }}
+              transition={{ type: "spring", stiffness: 320, damping: 32 }}
+              className="absolute left-0 top-0 bottom-0 shadow-2xl"
             >
-              <ProteinViewer />
+              <DashboardSidebar onNavigate={() => setMobileNav(false)} />
             </motion.div>
-          )}
-        </div>
+          </div>
+        )}
+      </AnimatePresence>
 
-        {/* Toggle Protein Viewer Button */}
-        <button
-          onClick={() => setShowProteinViewer(!showProteinViewer)}
-          className="flex fixed right-4 bottom-24 lg:bottom-8 z-50 w-12 h-12 items-center justify-center rounded-full bg-primary text-primary-foreground border border-border shadow-lg hover:scale-110 transition-transform"
-        >
-          {showProteinViewer ? (
-            <PanelRightClose className="w-6 h-6" />
-          ) : (
-            <PanelRightOpen className="w-6 h-6" />
-          )}
-        </button>
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <DashboardHeader
+          onToggleSidebar={() => setMobileNav((v) => !v)}
+          onTogglePanel={() => setPanelOpen((v) => !v)}
+          onOpenPanel={() => setPanelOpen(true)}
+        />
+
+        <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0">
+            <ChatInterface />
+          </div>
+
+          <AnimatePresence>
+            {panelOpen && (
+              <motion.div
+                key="panel"
+                initial={{ x: 40, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 40, opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                className="fixed inset-y-0 right-0 z-40 w-full max-w-[420px] p-3 bg-background border-l border-border
+                           lg:static lg:z-auto lg:w-[400px] lg:shrink-0"
+              >
+                <div className="h-full flex flex-col">
+                  <button
+                    onClick={() => setPanelOpen(false)}
+                    className="lg:hidden self-end mb-2 text-xs text-muted-foreground px-2 py-1"
+                  >
+                    Close
+                  </button>
+                  <div className="flex-1 min-h-0">
+                    <ProteinViewer />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </div>
   );
 };
-
 
 export default Dashboard;

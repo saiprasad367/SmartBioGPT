@@ -1,89 +1,98 @@
-const supabase = require('../config/supabase');
-const { z } = require('zod');
+const { supabaseAuth } = require('../config/supabase');
+const { validate, z } = require('../middleware/validate');
+const asyncHandler = require('../utils/asyncHandler');
+const ApiError = require('../utils/ApiError');
+const logger = require('../config/logger');
+const { sendWelcomeEmail } = require('../services/emailService');
 
-// @desc    Register a new user
-// @route   POST /auth/register
-const registerUser = async (req, res) => {
-    const registerSchema = z.object({
-        name: z.string().min(2),
-        email: z.string().email(),
-        password: z.string().min(6),
-    });
+const registerSchema = {
+    body: z.object({
+        name: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
+        email: z.string().trim().email(),
+        password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+    }),
+};
 
-    try {
-        const { name, email, password } = registerSchema.parse(req.body);
+const loginSchema = {
+    body: z.object({
+        email: z.string().trim().email(),
+        password: z.string().min(1),
+    }),
+};
 
-        // Sign up with Supabase
-        const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                data: { name }, // Metadata for profile trigger
-            },
-        });
-
-        if (error) throw error;
-
-        // Check if user already exists (Supabase might return specific error or empty user)
-        if (data.user && data.user.identities && data.user.identities.length === 0) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-
-        res.status(201).json({
-            _id: data.user.id,
-            name: name,
+function toSession(data, name) {
+    return {
+        user: {
+            id: data.user.id,
             email: data.user.email,
-            role: 'user',
-            token: data.session?.access_token,
-        });
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            res.status(400).json({ message: error.errors[0].message });
-        } else {
-            res.status(400).json({ message: error.message });
-        }
-    }
-};
+            name: name || data.user.user_metadata?.name || data.user.email?.split('@')[0],
+        },
+        token: data.session?.access_token || null,
+        refreshToken: data.session?.refresh_token || null,
+        expiresAt: data.session?.expires_at || null,
+    };
+}
 
-// @desc    Auth user & get token
-// @route   POST /auth/login
-const authUser = async (req, res) => {
-    try {
-        const { email, password } = req.body;
+const register = asyncHandler(async (req, res) => {
+    const { name, email, password } = req.body;
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
-
-        if (error) throw error;
-
-        res.json({
-            _id: data.user.id,
-            name: data.user.user_metadata?.name || 'User',
-            email: data.user.email,
-            role: 'user',
-            token: data.session.access_token,
-        });
-    } catch (error) {
-        res.status(401).json({ message: error.message || 'Invalid credentials' });
-    }
-};
-
-// @desc    Get user profile
-// @route   GET /auth/verify
-const getUserProfile = async (req, res) => {
-    // User is already attached by middleware
-    res.json({
-        _id: req.user.id,
-        name: req.user.user_metadata?.name || 'User',
-        email: req.user.email,
-        role: 'user',
+    const { data, error } = await supabaseAuth.auth.signUp({
+        email,
+        password,
+        options: { data: { name } },
     });
-};
+    if (error) throw ApiError.badRequest(error.message, { code: 'SIGNUP_FAILED' });
+
+    if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw ApiError.conflict('An account with this email already exists');
+    }
+
+    sendWelcomeEmail(email, name).catch((err) =>
+        logger.warn({ err: err.message }, 'welcome email failed (non-fatal)')
+    );
+
+    res.status(201).json({
+        ...toSession(data, name),
+        emailConfirmationRequired: !data.session,
+    });
+});
+
+const login = asyncHandler(async (req, res) => {
+    const { email, password } = req.body;
+    const { data, error } = await supabaseAuth.auth.signInWithPassword({ email, password });
+    if (error) {
+        if (/email not confirmed/i.test(error.message)) {
+            throw ApiError.forbidden('Please confirm your email address before signing in', {
+                code: 'EMAIL_NOT_CONFIRMED',
+            });
+        }
+        throw ApiError.unauthorized('Invalid email or password');
+    }
+    res.json(toSession(data));
+});
+
+const refresh = asyncHandler(async (req, res) => {
+    const { refreshToken } = req.body;
+    const { data, error } = await supabaseAuth.auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data?.session) throw ApiError.unauthorized('Could not refresh session');
+    res.json(toSession(data));
+});
+
+const me = asyncHandler(async (req, res) => {
+    res.json({ user: req.user });
+});
+
+const logout = asyncHandler(async (req, res) => {
+    if (req.accessToken) {
+        await supabaseAuth.auth.admin?.signOut?.(req.accessToken).catch(() => {});
+    }
+    res.json({ ok: true });
+});
 
 module.exports = {
-    registerUser,
-    authUser,
-    getUserProfile,
+    register: [validate(registerSchema), register],
+    login: [validate(loginSchema), login],
+    refresh: [validate({ body: z.object({ refreshToken: z.string().min(10) }) }), refresh],
+    me,
+    logout,
 };

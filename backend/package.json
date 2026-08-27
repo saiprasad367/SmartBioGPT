@@ -1,29 +1,41 @@
 {
-  "name": "backend",
+  "name": "smart-bio-gpt-backend",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "description": "Smart Bio GPT API - AI-powered biomedical research platform",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "bioinformatics",
+    "protein",
+    "ai",
+    "research"
+  ],
+  "author": "Sai Prasad",
+  "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.93.3",
-    "axios": "^1.13.4",
-    "bcryptjs": "^3.0.3",
-    "cors": "^2.8.6",
-    "dotenv": "^17.2.3",
-    "express": "^4.22.1",
-    "jsonwebtoken": "^9.0.3",
-    "mongodb": "^7.0.0",
-    "mongoose": "^9.1.5",
-    "morgan": "^1.10.1",
-    "sib-api-v3-sdk": "^8.5.0",
-    "zod": "^4.3.6",
-    "openai": "^6.17.0",
-    "sib-api-v3-sdk": "^8.5.0",
-    "zod": "^4.3.6"
+    "@supabase/supabase-js": "^2.45.4",
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "lru-cache": "^10.4.3",
+    "nodemailer": "^6.9.16",
+    "openai": "^4.68.4",
+    "pino": "^9.5.0",
+    "pino-http": "^10.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.0.0"
   }
 }

@@ -232,6 +232,22 @@ pie title Codebase Composition
 
 ## 🚀 Local Setup
 
+> **Full, current instructions live in [`SETUP.md`](SETUP.md).** The quick version is below.
+> The frontend talks only to the Express API; the API owns auth (Supabase JWT),
+> persistence, external bio-database aggregation, and the AI calls.
+
+```bash
+# 1. Database: run backend/db/schema.sql in the Supabase SQL editor
+
+# 2. Backend
+cd backend && cp .env.example .env   # fill SUPABASE_* and OPENROUTER_API_KEY
+npm install && npm run dev           # http://localhost:5000
+
+# 3. Frontend
+cd bio-insight-ai-main && cp .env.example .env   # VITE_API_URL=http://localhost:5000/api
+npm install && npm run dev                       # http://localhost:8080
+```
+
 ### 📋 Prerequisites
 
 <table>
