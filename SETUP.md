@@ -1,100 +1,122 @@
-# Smart Bio GPT — Local Setup
+# Smart Bio GPT — Setup
 
-Two services: **`backend/`** (Express API) and **`bio-insight-ai-main/`** (Vite + React SPA).
-The frontend talks **only** to the backend; the backend owns auth, persistence, the
-external bio-database aggregation, and the AI calls.
+A self-hosted, distributed system. **One command** brings up every service,
+the database, the cache, the API gateway and the web app in Docker.
 
 ```
-Browser ──> bio-insight-ai-main (Vite :8080)
-                     │  REST + JWT
-                     ▼
-             backend (Express :5000/api)
-              ├─ Supabase (Auth + Postgres)
-              ├─ OpenRouter (AI)
-              ├─ UniProt / RCSB PDB / AlphaFold / ChEMBL / STRING
-              └─ SMTP (nodemailer, optional)
+                         ┌──────────────────────┐
+  browser  ──────────▶   │  gateway (nginx)     │   http://localhost:8080
+                         └───────┬──────────────┘
+             ┌───────────────────┼─────────────────────┬───────────────┐
+             ▼                   ▼                     ▼               ▼
+      frontend (SPA)      auth-service           bio-service      chat-service
+                           :4001                  :4002            :4003
+                             │                      │                │
+                     ┌───────┴───────┐              │        ┌───────┴───────┐
+                     ▼               ▼              ▼        ▼               ▼
+                 Postgres :5432        Redis :6379 (cache + rate-limit state, all services)
+                 (auth-service, chat-service)
 ```
+
+| Container      | Role |
+|----------------|------|
+| `gateway`      | nginx — the only exposed port (`8080`); routes `/api/*` to services, everything else to the SPA |
+| `frontend`     | React + Vite SPA, built and served as static files |
+| `auth-service` | email/password + **Google OAuth**, issues JWT access + refresh tokens |
+| `bio-service`  | protein dossier aggregation (UniProt / RCSB PDB / AlphaFold / ChEMBL / STRING), stateless |
+| `chat-service` | research chat + AI, chats/messages/favorites/search-history |
+| `postgres`     | self-hosted database (persistent volume `pgdata`) |
+| `redis`        | shared cache + distributed rate-limit state (volume `redisdata`) |
+| `migrator`     | one-shot — applies `db/schema.sql`, then exits |
 
 ## 1. Prerequisites
 
-- Node.js **>= 20**
-- A Supabase project (free tier is fine)
-- An OpenRouter API key (optional — chat falls back to deterministic answers without it)
+- Docker Desktop / Docker Engine with Compose v2
+- (that's it — Node is only needed for local, non-Docker development)
 
-## 2. Database
-
-In the Supabase dashboard → **SQL Editor**, paste and run
-[`backend/db/schema.sql`](backend/db/schema.sql). This creates `chats`, `messages`,
-`favorites`, `search_history`, their indexes, RLS policies, and the `updated_at` trigger.
-
-## 3. Backend
+## 2. Configure
 
 ```bash
-cd backend
 cp .env.example .env
-# edit .env — see the table below
-npm install
-npm run dev            # http://localhost:5000
 ```
 
-| Variable | Required | Notes |
+Edit `.env` and set at minimum:
+
+| Variable | Required | How to get it |
 |---|---|---|
-| `SUPABASE_URL` | ✅ | Project URL |
-| `SUPABASE_ANON_KEY` | ✅ | Used for sign-in / sign-up / JWT verification |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ for chat/favorites | Server-only. Without it, DB writes are blocked by RLS |
-| `OPENROUTER_API_KEY` | optional | Enables real AI answers |
-| `OPENROUTER_MODEL` | optional | Defaults to `google/gemini-2.0-flash-001` |
-| `CORS_ORIGINS` | optional | Comma-separated; defaults include `:8080` and `:5173` |
-| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | optional | Welcome email via nodemailer; skipped if unset |
+| `POSTGRES_PASSWORD` | ✅ | any strong password |
+| `REDIS_PASSWORD` | ✅ | any strong password |
+| `JWT_SECRET` | ✅ | `openssl rand -base64 48` |
+| `INTERNAL_API_KEY` | ✅ | `openssl rand -hex 24` |
+| `GOOGLE_CLIENT_ID` | for Google login | Google Cloud Console → APIs & Services → Credentials → **OAuth client ID** (Web application). Add `http://localhost:8080` as an *Authorized JavaScript origin*. |
+| `OPENROUTER_API_KEY` | optional | [openrouter.ai](https://openrouter.ai) — without it, chat falls back to deterministic database summaries |
+| `SMTP_*` | optional | any SMTP provider — enables the welcome email |
 
-Verify:
-
-```bash
-curl http://localhost:5000/api/health          # {"status":"ok",...}
-curl http://localhost:5000/api/status          # feature flags, cache + circuit-breaker state
-curl -XPOST http://localhost:5000/api/bio/search \
-  -H 'content-type: application/json' -d '{"query":"TP53"}'
-```
-
-## 4. Frontend
+## 3. Run
 
 ```bash
-cd bio-insight-ai-main
-cp .env.example .env      # VITE_API_URL=http://localhost:5000/api
-npm install
-npm run dev               # http://localhost:8080
+docker compose up --build
 ```
 
-## 5. API surface
+Open **http://localhost:8080**.
 
-All under `/api`. `✅` = requires `Authorization: Bearer <supabase-access-token>`.
+First boot builds the images and runs the migration; subsequent boots are fast.
+Data survives restarts in the `pgdata` / `redisdata` volumes.
 
-| Method | Path | Auth | Purpose |
+```bash
+docker compose down          # stop
+docker compose down -v       # stop + wipe the database
+docker compose logs -f auth-service
+```
+
+## 4. Health
+
+```bash
+curl http://localhost:8080/api/health            # gateway
+curl http://localhost:8080/api/bio/status        # circuit-breaker + cache state
+docker compose ps                                # per-container health
+```
+
+## 5. API surface (through the gateway, all under `/api`)
+
+`✅` = requires `Authorization: Bearer <access-token>`
+
+| Method | Path | Auth | Service |
 |---|---|---|---|
-| GET | `/health`, `/health/ready`, `/status` | – | liveness / readiness / diagnostics |
-| POST | `/auth/register` | – | sign up (+ welcome email) |
-| POST | `/auth/login` | – | sign in → `{ token, refreshToken, user }` |
-| POST | `/auth/refresh` | – | rotate an expired access token |
-| GET | `/auth/me` | ✅ | current user |
-| POST | `/bio/search` | optional | resolve query → normalized protein dossier |
-| GET | `/bio/protein/:accession` | optional | dossier by accession |
-| GET | `/structure/:identifier` | optional | resolve PDB / AlphaFold coordinates URL |
-| POST | `/chat/message` | ✅ | send message, get AI reply (protein held in context) |
-| GET | `/chat` | ✅ | list research sessions |
-| GET | `/chat/:id` | ✅ | session + messages |
-| PATCH | `/chat/:id` | ✅ | rename session |
-| DELETE | `/chat/:id` | ✅ | delete session |
-| GET | `/user/favorites` | ✅ | list saved proteins |
-| POST | `/user/favorites` | ✅ | save a protein |
-| DELETE | `/user/favorites/:accession` | ✅ | remove |
-| GET | `/user/history` | ✅ | recent searches |
+| GET | `/health` | – | gateway |
+| POST | `/auth/register` | – | auth |
+| POST | `/auth/login` | – | auth |
+| POST | `/auth/google` | – | auth — body `{ idToken }` from Google Identity Services |
+| POST | `/auth/refresh` | – | auth |
+| GET | `/auth/me` | ✅ | auth |
+| POST | `/auth/logout` | ✅ | auth |
+| POST | `/bio/search` | optional | bio |
+| GET | `/bio/protein/:accession` | optional | bio |
+| GET | `/structure/:identifier` | optional | bio |
+| POST | `/chat/message` | ✅ | chat |
+| GET/PATCH/DELETE | `/chat`, `/chat/:id` | ✅ | chat |
+| GET/POST/DELETE | `/user/favorites`, `/user/favorites/:accession` | ✅ | chat |
+| GET | `/user/history` | ✅ | chat |
+
+## 6. Local development (without Docker)
+
+```bash
+npm install                       # root — installs all workspaces
+# run Postgres + Redis however you like, export DATABASE_URL / REDIS_URL / JWT_SECRET / INTERNAL_API_KEY
+psql "$DATABASE_URL" -f db/schema.sql
+npm run dev:auth   # :4001
+npm run dev:bio    # :4002
+npm run dev:chat   # :4003
+cd bio-insight-ai-main && npm run dev   # :8080  (set VITE_API_URL to a gateway or a service)
+```
 
 ## Resilience notes
 
-- Every external provider has its own timeout, bounded exponential-backoff retry,
-  and circuit breaker. A dead provider degrades one section of a result instead of
-  failing the request (`Promise.allSettled` aggregation).
-- Protein dossiers are cached in-process (TTL, `BIO_CACHE_TTL_MS`) behind a
-  Redis-shaped interface (`backend/src/utils/cache.js`).
-- The API is stateless (no in-process sessions) and handles `SIGTERM`/`SIGINT`
-  with connection draining — safe to run behind a load balancer / autoscaler.
+- Every external provider has its own timeout, bounded exponential-backoff
+  retry, and circuit breaker (`bio-service`). A dead provider degrades one
+  section of a result instead of failing the request.
+- Dossiers are cached in Redis (shared across replicas) with an in-process L1.
+- Services are stateless and handle `SIGTERM` with connection draining — safe
+  to scale with `docker compose up --scale bio-service=3`.
+- Access tokens are verified locally in each service (shared `JWT_SECRET`), so
+  auth never becomes a bottleneck.

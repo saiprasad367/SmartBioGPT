@@ -1,0 +1,17 @@
+{
+  "name": "@sbg/auth-service",
+  "version": "1.0.0",
+  "description": "Smart Bio GPT - authentication microservice (email/password + Google OAuth, JWT).",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@sbg/shared": "file:../../packages/shared",
+    "bcryptjs": "^2.4.3"
+  }
+}

@@ -1,8 +1,11 @@
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
 const API_URL =
-  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ||
-  "http://localhost:5000/api";
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") || "/api";
+
+/** Public Google OAuth client id (compiled in at build time). Empty = disabled. */
+export const GOOGLE_CLIENT_ID =
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || "";
 
 const TOKEN_KEY = "sbg.token";
 const REFRESH_KEY = "sbg.refreshToken";
@@ -135,8 +138,13 @@ export const authApi = {
     api.post("/auth/register", body).then((r) => r.data),
   login: (body: { email: string; password: string }) =>
     api.post("/auth/login", body).then((r) => r.data),
+  google: (idToken: string) =>
+    api.post("/auth/google", { idToken }).then((r) => r.data),
   me: () => api.get("/auth/me").then((r) => r.data.user),
-  logout: () => api.post("/auth/logout").then((r) => r.data),
+  logout: () =>
+    api
+      .post("/auth/logout", { refreshToken: tokenStore.getRefresh() })
+      .then((r) => r.data),
 };
 
 export const bioApi = {

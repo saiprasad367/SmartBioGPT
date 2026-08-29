@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, ArrowLeft, Mail, Lock, User } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
+import GoogleAuthButton from "@/components/auth/GoogleAuthButton";
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -174,6 +175,8 @@ const Signup = () => {
               {isLoading ? "Creating account…" : "Create Account"}
             </HeroButton>
           </form>
+
+          <GoogleAuthButton redirectTo="/dashboard" />
 
           <p className="mt-6 text-center text-muted-foreground">
             Already have an account?{" "}

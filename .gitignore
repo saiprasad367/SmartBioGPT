@@ -36,16 +36,13 @@ yarn-error.log*
 # Dependencies
 # =========================
 node_modules/
-bio-insight-ai-main/node_modules/
-backend/node_modules/
+**/node_modules/
 
 # =========================
 # Build Outputs
 # =========================
-bio-insight-ai-main/dist/
-bio-insight-ai-main/build/
-backend/dist/
-backend/build/
+**/dist/
+**/build/
 
 # =========================
 # Coverage

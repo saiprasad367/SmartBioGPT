@@ -2,8 +2,12 @@ import { motion } from "framer-motion";
 
 const technologies = [
   { name: "React", category: "Frontend" },
-  { name: "Express", category: "Backend" },
-  { name: "Supabase", category: "Auth + DB" },
+  { name: "Node Microservices", category: "Backend" },
+  { name: "NGINX Gateway", category: "Edge" },
+  { name: "PostgreSQL", category: "Database" },
+  { name: "Redis", category: "Cache" },
+  { name: "Docker Compose", category: "Runtime" },
+  { name: "Google OAuth", category: "Auth" },
   { name: "OpenRouter", category: "AI" },
   { name: "UniProt", category: "Data" },
   { name: "AlphaFold", category: "Data" },

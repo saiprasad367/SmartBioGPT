@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, ArrowLeft, Mail, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
+import GoogleAuthButton from "@/components/auth/GoogleAuthButton";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -103,6 +104,8 @@ const Login = () => {
               {isLoading ? "Signing in…" : "Sign In"}
             </HeroButton>
           </form>
+
+          <GoogleAuthButton redirectTo="/dashboard" />
 
           <p className="mt-8 text-center text-muted-foreground">
             Don't have an account?{" "}
