@@ -19,7 +19,11 @@ const { globalLimiter } = require('./rateLimit');
 function createApp({ mount, serviceName = process.env.SERVICE_NAME || 'sbg-service' }) {
     const app = express();
 
-    app.set('trust proxy', 1);
+    // Hops between the client and this service that we trust to set
+    // X-Forwarded-* (used for rate-limit keying and req.ip). Local/compose: 1
+    // (gateway). Behind an extra edge proxy (Caddy, ALB, Cloudflare): 2.
+    const trustProxy = process.env.TRUST_PROXY;
+    app.set('trust proxy', trustProxy === undefined ? 1 : /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
     app.disable('x-powered-by');
 
     app.use((req, _res, next) => {

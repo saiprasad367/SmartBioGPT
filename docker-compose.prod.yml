@@ -1,0 +1,126 @@
+# =========================================================================
+#  Smart Bio GPT - PRODUCTION overlay.  Use together with the base file:
+#
+#      docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+#  Or put this in .env and then just run `docker compose up -d --build`:
+#      COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#
+#  Adds:  Caddy TLS edge (ports 80/443, automatic Let's Encrypt),
+#         restart:always, JSON log rotation, per-service memory limits.
+#  Needs: PUBLIC_DOMAIN + ACME_EMAIL in .env, and Docker Compose v2.24+.
+# =========================================================================
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # ---- TLS edge -----------------------------------------------------------
+  caddy:
+    image: caddy:2.8-alpine
+    restart: always
+    networks: [sbg]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"          # HTTP/3
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?set PUBLIC_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # certificates - MUST persist
+      - caddy_config:/config
+    depends_on:
+      - gateway
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+  # ---- gateway: no longer publishes a host port; Caddy fronts it ---------
+  gateway:
+    ports: !reset []
+    expose:
+      - "8080"
+    restart: always
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+  frontend:
+    restart: always
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  # ---- data -------------------------------------------------------------
+  postgres:
+    restart: always
+    logging: *logging
+    shm_size: 256mb
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  redis:
+    restart: always
+    logging: *logging
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD}"
+      - "--appendonly"
+      - "yes"
+      - "--maxmemory"
+      - "256mb"
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  # ---- microservices ---------------------------------------------------
+  auth-service:
+    restart: always
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  bio-service:
+    restart: always
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+  chat-service:
+    restart: always
+    logging: *logging
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+
+volumes:
+  caddy_data:
+  caddy_config:

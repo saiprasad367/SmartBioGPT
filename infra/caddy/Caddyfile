@@ -1,0 +1,25 @@
+# Smart Bio GPT - production edge (automatic HTTPS via Let's Encrypt).
+#
+# {$PUBLIC_DOMAIN} and {$ACME_EMAIL} are injected from the environment by the
+# caddy service in docker-compose.prod.yml. Point an A/AAAA record for the
+# domain at this host BEFORE first boot so the ACME HTTP-01 challenge succeeds.
+
+{
+	email {$ACME_EMAIL}
+	# For dry runs, uncomment to use the Let's Encrypt staging CA (avoids rate limits):
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	# The app also sets its own headers via helmet; these cover the TLS edge.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy gateway:8080
+}

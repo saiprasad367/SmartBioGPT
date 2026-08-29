@@ -585,6 +585,20 @@ docker exec -it smart-bio-gpt-postgres-1 psql -U smartbio -d smartbiogpt
 Change the host port by editing **`GATEWAY_PORT`, `APP_PUBLIC_URL` and
 `CORS_ORIGINS` together** in `.env`, then `docker compose up -d`.
 
+### Production (Docker Compose + TLS)
+
+`docker-compose.prod.yml` is a production overlay that adds a **Caddy TLS edge**
+(automatic Let's Encrypt on 80/443), `restart: always`, log rotation and memory
+limits. The same one-command workflow applies:
+
+```bash
+cp .env.production.example .env      # set PUBLIC_DOMAIN, ACME_EMAIL, secrets, …
+docker compose up -d --build         # COMPOSE_FILE in .env merges the overlay
+```
+
+**Full AWS EC2 walkthrough — every console field, sizing, DNS, backups,
+hardening, teardown: [`DEPLOY_AWS.md`](DEPLOY_AWS.md).**
+
 ---
 
 ## 💻 Local development (no Docker)
