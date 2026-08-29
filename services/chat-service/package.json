@@ -1,0 +1,16 @@
+{
+  "name": "@sbg/chat-service",
+  "version": "1.0.0",
+  "description": "Smart Bio GPT - research chat + user workspace microservice (chats, messages, favorites, history, AI).",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@sbg/shared": "file:../../packages/shared"
+  }
+}

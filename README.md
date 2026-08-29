@@ -66,29 +66,46 @@
 
 ## 🏗️ System Architecture
 
+A self-hosted **distributed system** — every part runs in Docker and comes up
+with a single `docker compose up`.
+
 ```mermaid
 graph TD
-    A[👤 User Interface] -->|HTTPS| B[React + TypeScript Frontend]
-    B -->|REST API| C[Node.js + Express Backend]
-    C -->|JWT Auth| D[Supabase PostgreSQL]
-    C -->|Data Queries| E[UniProt API]
-    C -->|Data Queries| F[RCSB PDB]
-    C -->|Data Queries| G[STRING DB]
-    C -->|Data Queries| H[DrugBank API]
-    C -->|Data Queries| I[ESMFold]
-    B -->|3D Rendering| J[Three.js + Mol*]
-    
-    style A fill:#00D9FF,stroke:#0099CC,stroke-width:2px,color:#000
-    style B fill:#61DAFB,stroke:#21A1F1,stroke-width:2px,color:#000
-    style C fill:#68A063,stroke:#4F7942,stroke-width:2px,color:#fff
-    style D fill:#3ECF8E,stroke:#2DA771,stroke-width:2px,color:#000
-    style E fill:#FFB84D,stroke:#E69A2E,stroke-width:2px,color:#000
-    style F fill:#FFB84D,stroke:#E69A2E,stroke-width:2px,color:#000
-    style G fill:#FFB84D,stroke:#E69A2E,stroke-width:2px,color:#000
-    style H fill:#FFB84D,stroke:#E69A2E,stroke-width:2px,color:#000
-    style I fill:#FFB84D,stroke:#E69A2E,stroke-width:2px,color:#000
-    style J fill:#FF6B9D,stroke:#E05580,stroke-width:2px,color:#000
+    U[User Browser] -->|HTTP :8080| GW[NGINX API Gateway]
+    GW -->|/| FE[React + Vite SPA]
+    GW -->|/api/auth| AUTH[auth-service<br/>JWT + Google OAuth]
+    GW -->|/api/bio, /api/structure| BIO[bio-service<br/>protein aggregation]
+    GW -->|/api/chat, /api/user| CHAT[chat-service<br/>chat + AI + workspace]
+    AUTH --> PG[(PostgreSQL)]
+    CHAT --> PG
+    AUTH -.-> RS[(Redis)]
+    BIO -.-> RS
+    CHAT -.-> RS
+    BIO -->|internal| CHAT
+    CHAT -->|internal| BIO
+    BIO --> EXT[UniProt · RCSB PDB · AlphaFold · ChEMBL · STRING]
+    CHAT --> AI[OpenRouter AI]
+
+    style GW fill:#111,stroke:#000,color:#fff
+    style FE fill:#61DAFB,stroke:#21A1F1,color:#000
+    style AUTH fill:#68A063,stroke:#4F7942,color:#fff
+    style BIO fill:#68A063,stroke:#4F7942,color:#fff
+    style CHAT fill:#68A063,stroke:#4F7942,color:#fff
+    style PG fill:#316192,stroke:#1F3F5F,color:#fff
+    style RS fill:#D82C20,stroke:#A81E15,color:#fff
+    style EXT fill:#FFB84D,stroke:#E69A2E,color:#000
+    style AI fill:#FF6B9D,stroke:#E05580,color:#000
 ```
+
+### Quick start
+
+```bash
+cp .env.example .env       # set POSTGRES_PASSWORD, REDIS_PASSWORD, JWT_SECRET,
+                           # INTERNAL_API_KEY, GOOGLE_CLIENT_ID
+docker compose up --build  # → http://localhost:8080
+```
+
+Full instructions: **[`SETUP.md`](SETUP.md)**.
 
 ---
 
@@ -166,9 +183,12 @@ Seamless experience across mobile, tablet, and desktop devices
 
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?style=for-the-badge&logo=express&logoColor=white)
-![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-D82C20?style=for-the-badge&logo=redis&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![NGINX](https://img.shields.io/badge/NGINX-009639?style=for-the-badge&logo=nginx&logoColor=white)
 ![JWT](https://img.shields.io/badge/JWT-000000?style=for-the-badge&logo=json-web-tokens&logoColor=white)
+![Google OAuth](https://img.shields.io/badge/Google_OAuth-4285F4?style=for-the-badge&logo=google&logoColor=white)
 ![Zod](https://img.shields.io/badge/Zod-3E67B1?style=for-the-badge&logo=zod&logoColor=white)
 
 ### Deployment & Tools
@@ -196,32 +216,25 @@ pie title Codebase Composition
 
 ```
 📦 SmartBioGPT
-┣ 📂 bio-insight-ai-main          # 🎨 Frontend Application
-┃ ┣ 📂 src
-┃ ┃ ┣ 📂 components               # React components
-┃ ┃ ┣ 📂 pages                    # Application pages
-┃ ┃ ┣ 📂 hooks                    # Custom React hooks
-┃ ┃ ┣ 📂 utils                    # Utility functions
-┃ ┃ ┣ 📂 styles                   # CSS and Tailwind styles
-┃ ┃ ┗ 📂 assets                   # Images and static files
-┃ ┣ 📜 package.json
-┃ ┣ 📜 vite.config.ts
-┃ ┣ 📜 tsconfig.json
-┃ ┗ 📜 tailwind.config.js
+┣ 📜 docker-compose.yml           # 🐳 one command brings up the whole system
+┣ 📜 .env.example                 # single env file for every service
 ┃
-┣ 📂 backend                      # ⚙️ Backend API
-┃ ┣ 📂 src
-┃ ┃ ┣ 📂 routes                   # API endpoints
-┃ ┃ ┣ 📂 controllers              # Request handlers
-┃ ┃ ┣ 📂 models                   # Database models
-┃ ┃ ┣ 📂 middleware               # Auth & validation
-┃ ┃ ┣ 📂 services                 # Business logic
-┃ ┃ ┗ 📂 utils                    # Helper functions
-┃ ┣ 📜 package.json
-┃ ┗ 📜 .env.example
+┣ 📂 infra/gateway                # 🌐 NGINX API gateway (only exposed port)
+┣ 📂 db                           # 🗄️ schema.sql (applied by the migrator)
 ┃
-┣ 📜 .gitignore
-┗ 📜 README.md
+┣ 📂 packages/shared              # 📚 @sbg/shared — infra + web + domain library
+┃ ┗ 📂 src
+┃   ┣ 📂 bio                      #    UniProt/PDB/AlphaFold/ChEMBL/STRING + aggregation
+┃   ┣ 📂 ai                       #    OpenRouter chat
+┃   ┣ 📂 data                     #    pg repositories (users, tokens, workspace)
+┃   ┗ 📂 auth                     #    Google verify, welcome email
+┃
+┣ 📂 services
+┃ ┣ 📂 auth-service               # ⚙️ email/password + Google OAuth, JWT
+┃ ┣ 📂 bio-service                # ⚙️ protein dossier aggregation (stateless)
+┃ ┗ 📂 chat-service               # ⚙️ chat + AI + user workspace
+┃
+┗ 📂 bio-insight-ai-main          # 🎨 React + Vite SPA (built, served by NGINX)
 ```
 
 <div align="center">
@@ -230,122 +243,49 @@ pie title Codebase Composition
 
 ---
 
-## 🚀 Local Setup
+## 🚀 Setup
 
-### 📋 Prerequisites
+> **Full instructions: [`SETUP.md`](SETUP.md).** The whole system — 3 microservices,
+> NGINX gateway, PostgreSQL, Redis, the migrator and the SPA — runs from one file.
 
-<table>
-<tr>
-<td width="33%">
-
-**Node.js**
-```bash
-v16 or higher
-```
-
-</td>
-<td width="33%">
-
-**Supabase**
-```bash
-PostgreSQL Database
-```
-
-</td>
-<td width="33%">
-
-**Git**
-```bash
-Version Control
-```
-
-</td>
-</tr>
-</table>
-
-### 1️⃣ Clone the Repository
+### 1️⃣ Clone
 
 ```bash
 git clone https://github.com/saiprasad367/SmartBioGPT.git
 cd SmartBioGPT
 ```
 
-<div align="center">
-  <img src="https://user-images.githubusercontent.com/74038190/212257467-871d32b7-e401-42e8-a166-fcfd7baa4c6b.gif" width="100">
-</div>
-
-### 2️⃣ Backend Setup
-
-Navigate to the backend directory:
+### 2️⃣ Configure
 
 ```bash
-cd backend
-npm install
+cp .env.example .env
 ```
 
-Create a `.env` file in the `backend/` directory:
+Set in `.env`:
 
-```env
-# Database Configuration
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_KEY=your_supabase_anon_key
-DATABASE_URL=your_postgresql_connection_string
+| Variable | Required | Notes |
+|---|---|---|
+| `POSTGRES_PASSWORD`, `REDIS_PASSWORD` | ✅ | any strong values |
+| `JWT_SECRET` | ✅ | `openssl rand -base64 48` |
+| `INTERNAL_API_KEY` | ✅ | `openssl rand -hex 24` — shared secret for service-to-service calls |
+| `GOOGLE_CLIENT_ID` | for Google login | OAuth **Web** client id from Google Cloud Console; add `http://localhost:8080` as an authorized JavaScript origin |
+| `OPENROUTER_API_KEY` | optional | enables real AI answers (falls back to DB summaries otherwise) |
+| `SMTP_*` | optional | welcome email |
 
-# Authentication
-JWT_SECRET=your_jwt_secret_key
-
-# Server Configuration
-PORT=5000
-NODE_ENV=development
-
-# External APIs (Optional)
-UNIPROT_API_KEY=your_uniprot_key
-DRUGBANK_API_KEY=your_drugbank_key
-```
-
-Start the backend server:
+### 3️⃣ Run
 
 ```bash
-npm run dev
+docker compose up --build
 ```
 
-✅ Backend running on `http://localhost:5000`
-
-<div align="center">
-  <img src="https://user-images.githubusercontent.com/74038190/212257454-16e3712e-945a-4ca2-b238-408ad0bf87e6.gif" width="100">
-</div>
-
-### 3️⃣ Frontend Setup
-
-Navigate to the frontend directory:
+✅ Everything on **http://localhost:8080** — SPA, API, auth, database, cache.
+The database persists in the `pgdata` volume between restarts.
 
 ```bash
-cd bio-insight-ai-main
-npm install
+docker compose down            # stop
+docker compose down -v         # stop + reset the database
+docker compose up --scale bio-service=3   # scale a stateless service
 ```
-
-Create a `.env` file in the `bio-insight-ai-main/` directory:
-
-```env
-# API Configuration
-VITE_API_BASE_URL=http://localhost:5000
-
-# Supabase Configuration (for client-side)
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-Start the frontend development server:
-
-```bash
-npm run dev
-```
-
-✅ Frontend running on `http://localhost:5173`
-
-<div align="center">
-  <img src="https://user-images.githubusercontent.com/74038190/212257472-08e52665-c503-4bd9-aa20-f5a4dae769b5.gif" width="100">
-</div>
 
 ### 🎉 You're All Set!
 

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
 import DNA3DScene from "@/components/3d/DNA3DScene";
 import { HeroButton } from "@/components/ui/hero-button";
@@ -8,9 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, ArrowLeft, Mail, Lock, User } from "lucide-react";
 import { toast } from "sonner";
+import { useAuthStore } from "@/store/authStore";
+import GoogleAuthButton from "@/components/auth/GoogleAuthButton";
 
 const Signup = () => {
   const navigate = useNavigate();
+  const register = useAuthStore((s) => s.register);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -23,53 +25,30 @@ const Signup = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (formData.password !== formData.confirmPassword) {
       toast.error("Passwords do not match");
       return;
     }
-
-    if (formData.password.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    if (formData.password.length < 8) {
+      toast.error("Password must be at least 8 characters");
       return;
     }
-
     setIsLoading(true);
-
     try {
-      const { error } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: formData.name,
-          },
-        },
-      });
-
-      if (error) throw error;
-
-      // Send Welcome Email
-      try {
-        await fetch('https://smartbiogpt.onrender.com//user/welcome', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            name: formData.name,
-          }),
-        });
-      } catch (emailErr) {
-        console.error("Failed to send welcome email:", emailErr);
-        // Continue flow even if email fails
+      const { emailConfirmationRequired } = await register(
+        formData.name,
+        formData.email,
+        formData.password
+      );
+      if (emailConfirmationRequired) {
+        toast.success("Account created — confirm your email, then sign in.");
+        navigate("/login");
+      } else {
+        toast.success("Account created");
+        navigate("/dashboard");
       }
-
-      toast.success("Account created! You can now log in.");
-      navigate("/login");
-    } catch (error: any) {
-      toast.error(error.message || "Signup failed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Sign up failed");
     } finally {
       setIsLoading(false);
     }
@@ -77,28 +56,15 @@ const Signup = () => {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Side - 3D DNA Animation */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1, delay: 0.3 }}
-        className="hidden lg:block w-1/2 relative"
+        className="hidden lg:block w-1/2 relative border-r border-border"
       >
         <DNA3DScene />
-
-        {/* Overlay text */}
-        <div className="absolute bottom-12 left-12 right-12">
-          <p className="text-sm text-muted-foreground">
-            "Join thousands of researchers who are accelerating their
-            discoveries with AI-powered bioinformatics."
-          </p>
-          <p className="mt-2 font-medium text-sm">
-            Start your journey today
-          </p>
-        </div>
       </motion.div>
 
-      {/* Right Side - Form */}
       <div className="w-full lg:w-1/2 flex flex-col justify-center px-8 md:px-16 lg:px-24 bg-background">
         <motion.div
           initial={{ opacity: 0, x: 30 }}
@@ -106,7 +72,6 @@ const Signup = () => {
           transition={{ duration: 0.6 }}
           className="max-w-md w-full mx-auto"
         >
-          {/* Back Link */}
           <Link
             to="/"
             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-12"
@@ -115,7 +80,6 @@ const Signup = () => {
             Back to Home
           </Link>
 
-          {/* Logo */}
           <div className="flex items-center gap-2 mb-8">
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold">SB</span>
@@ -123,15 +87,11 @@ const Signup = () => {
             <span className="font-semibold text-xl">Smart Bio GPT</span>
           </div>
 
-          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold mb-2">Create an account</h1>
-            <p className="text-muted-foreground">
-              Start exploring protein and gene intelligence
-            </p>
+            <p className="text-muted-foreground">Start exploring protein and gene intelligence</p>
           </div>
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -172,7 +132,7 @@ const Signup = () => {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
+                  placeholder="At least 8 characters"
                   className="pl-10 pr-10 h-12 rounded-xl"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -211,26 +171,13 @@ const Signup = () => {
               </div>
             </div>
 
-            <HeroButton
-              type="submit"
-              variant="hero"
-              size="lg"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? "Creating account..." : "Create Account"}
+            <HeroButton type="submit" variant="hero" size="lg" className="w-full" disabled={isLoading}>
+              {isLoading ? "Creating account…" : "Create Account"}
             </HeroButton>
           </form>
 
-          {/* Terms */}
-          <p className="mt-6 text-xs text-center text-muted-foreground">
-            By signing up, you agree to our{" "}
-            <a href="#" className="underline hover:text-foreground">Terms of Service</a>
-            {" "}and{" "}
-            <a href="#" className="underline hover:text-foreground">Privacy Policy</a>
-          </p>
+          <GoogleAuthButton redirectTo="/dashboard" />
 
-          {/* Login Link */}
           <p className="mt-6 text-center text-muted-foreground">
             Already have an account?{" "}
             <Link to="/login" className="text-foreground font-medium hover:underline">

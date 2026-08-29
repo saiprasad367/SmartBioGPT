@@ -1,0 +1,21 @@
+{
+  "name": "smart-bio-gpt",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Smart Bio GPT - AI-powered biomedical research platform (distributed microservices).",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "up": "docker compose up --build",
+    "down": "docker compose down",
+    "logs": "docker compose logs -f",
+    "dev:auth": "npm --workspace @sbg/auth-service run dev",
+    "dev:bio": "npm --workspace @sbg/bio-service run dev",
+    "dev:chat": "npm --workspace @sbg/chat-service run dev"
+  },
+  "license": "MIT"
+}
