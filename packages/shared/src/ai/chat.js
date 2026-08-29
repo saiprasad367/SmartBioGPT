@@ -2,9 +2,25 @@ const OpenAI = require('openai');
 const logger = require('../logger');
 
 const AI_ENABLED = Boolean(process.env.OPENROUTER_API_KEY);
-const MODEL = process.env.OPENROUTER_MODEL || 'google/gemini-2.0-flash-001';
+const MODEL = process.env.OPENROUTER_MODEL || 'minimax/minimax-m3:free';
 const BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
 const APP_PUBLIC_URL = process.env.APP_PUBLIC_URL || 'http://localhost:8080';
+const MAX_TOKENS = Number(process.env.OPENROUTER_MAX_TOKENS) || 1200;
+
+/**
+ * OpenRouter fallback chain: if the primary model is rate-limited (429) or out
+ * of credits (402), OpenRouter automatically routes to the next one. Extra
+ * entries beyond MODEL are free models with different upstream providers.
+ */
+const FALLBACK_MODELS = [
+    ...new Set([
+        MODEL,
+        ...String(process.env.OPENROUTER_FALLBACK_MODELS || 'nvidia/nemotron-3-super-120b-a12b:free')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+    ]),
+];
 
 const openai = AI_ENABLED
     ? new OpenAI({
@@ -51,14 +67,15 @@ async function generateChatResponse(history, contextData = null) {
 
     try {
         const completion = await openai.chat.completions.create({
-            model: MODEL,
+            model: FALLBACK_MODELS[0],
+            models: FALLBACK_MODELS.length > 1 ? FALLBACK_MODELS : undefined,
             messages,
             temperature: 0.3,
-            max_tokens: 1200,
+            max_tokens: MAX_TOKENS,
         });
         const content = completion.choices?.[0]?.message?.content?.trim();
         if (!content) throw new Error('empty completion');
-        return { content, degraded: false, model: MODEL };
+        return { content, degraded: false, model: completion.model || FALLBACK_MODELS[0] };
     } catch (err) {
         logger.error({ err: err.message }, 'AI provider call failed - using deterministic fallback');
         return { content: fallbackResponse(history, contextData), degraded: true };

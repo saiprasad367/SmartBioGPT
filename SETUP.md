@@ -5,7 +5,7 @@ the database, the cache, the API gateway and the web app in Docker.
 
 ```
                          ┌──────────────────────┐
-  browser  ──────────▶   │  gateway (nginx)     │   http://localhost:8080
+  browser  ──────────▶   │  gateway (nginx)     │   http://localhost:8088
                          └───────┬──────────────┘
              ┌───────────────────┼─────────────────────┬───────────────┐
              ▼                   ▼                     ▼               ▼
@@ -20,7 +20,7 @@ the database, the cache, the API gateway and the web app in Docker.
 
 | Container      | Role |
 |----------------|------|
-| `gateway`      | nginx — the only exposed port (`8080`); routes `/api/*` to services, everything else to the SPA |
+| `gateway`      | nginx — the only exposed port (`8088`); routes `/api/*` to services, everything else to the SPA |
 | `frontend`     | React + Vite SPA, built and served as static files |
 | `auth-service` | email/password + **Google OAuth**, issues JWT access + refresh tokens |
 | `bio-service`  | protein dossier aggregation (UniProt / RCSB PDB / AlphaFold / ChEMBL / STRING), stateless |
@@ -48,7 +48,7 @@ Edit `.env` and set at minimum:
 | `REDIS_PASSWORD` | ✅ | any strong password |
 | `JWT_SECRET` | ✅ | `openssl rand -base64 48` |
 | `INTERNAL_API_KEY` | ✅ | `openssl rand -hex 24` |
-| `GOOGLE_CLIENT_ID` | for Google login | Google Cloud Console → APIs & Services → Credentials → **OAuth client ID** (Web application). Add `http://localhost:8080` as an *Authorized JavaScript origin*. |
+| `GOOGLE_CLIENT_ID` | for Google login | Google Cloud Console → APIs & Services → Credentials → **OAuth client ID** (Web application). Add `http://localhost:8088` as an *Authorized JavaScript origin*. |
 | `OPENROUTER_API_KEY` | optional | [openrouter.ai](https://openrouter.ai) — without it, chat falls back to deterministic database summaries |
 | `SMTP_*` | optional | any SMTP provider — enables the welcome email |
 
@@ -58,7 +58,7 @@ Edit `.env` and set at minimum:
 docker compose up --build
 ```
 
-Open **http://localhost:8080**.
+Open **http://localhost:8088**.
 
 First boot builds the images and runs the migration; subsequent boots are fast.
 Data survives restarts in the `pgdata` / `redisdata` volumes.
@@ -72,8 +72,8 @@ docker compose logs -f auth-service
 ## 4. Health
 
 ```bash
-curl http://localhost:8080/api/health            # gateway
-curl http://localhost:8080/api/bio/status        # circuit-breaker + cache state
+curl http://localhost:8088/api/health            # gateway
+curl http://localhost:8088/api/bio/status        # circuit-breaker + cache state
 docker compose ps                                # per-container health
 ```
 
@@ -107,7 +107,7 @@ psql "$DATABASE_URL" -f db/schema.sql
 npm run dev:auth   # :4001
 npm run dev:bio    # :4002
 npm run dev:chat   # :4003
-cd bio-insight-ai-main && npm run dev   # :8080  (set VITE_API_URL to a gateway or a service)
+cd bio-insight-ai-main && npm run dev   # :5173  (set VITE_API_URL to a gateway or a service)
 ```
 
 ## Resilience notes
